@@ -1,0 +1,1 @@
+(()=>{const buttons=[...document.querySelectorAll('nav button')];if(!buttons.length)return;const setActive=b=>{buttons.forEach(x=>x.classList.toggle('active',x===b))};setActive(buttons[0]);buttons.forEach(b=>b.addEventListener('click',()=>setActive(b)));})();
