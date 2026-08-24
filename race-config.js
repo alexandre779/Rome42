@@ -1,0 +1,1 @@
+(()=>{const KEY='rome42-profile-v2',RACE='2027-03-14';try{const raw=localStorage.getItem(KEY);if(!raw)return;const p=JSON.parse(raw);if(p&&p.raceDate!==RACE){p.raceDate=RACE;localStorage.setItem(KEY,JSON.stringify(p));}}catch(e){console.warn('Rome42 race date migration skipped',e)}})();
