@@ -1,0 +1,1 @@
+(()=>{function clean(){document.querySelectorAll('main .card').forEach(c=>{const t=(c.textContent||'').trim();if(t.includes('Budget')&&t.includes('0 €'))c.remove();if(t.includes('Garmin Connect'))c.remove();});}new MutationObserver(clean).observe(document.documentElement,{childList:true,subtree:true});setTimeout(clean,0);})();
