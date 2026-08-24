@@ -13,7 +13,7 @@ function apply(){
     const wn=weekNumber(block),w=weeks.find(x=>x.week===wn); if(!w)return;
     block.querySelectorAll('.menu-day').forEach((dayEl,di)=>{
       const code=w.days?.[di]?.menu; if(!code||!N()?.lib?.[code])return;
-      const tag=dayEl.querySelector('.menu-day-head .tag'); if(tag)tag.textContent='Menu '+code;
+      const tag=dayEl.querySelector('.menu-day-head .tag'); if(tag){tag.textContent='Repas du jour';tag.classList.add('menu-friendly-tag')}
       dayEl.querySelectorAll('.recipe-open[data-part]').forEach(card=>{
         const part=card.dataset.part,m=N().meal(code,part); if(!m)return;
         card.dataset.code=code;
