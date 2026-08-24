@@ -37,21 +37,28 @@
     L:{lunch:'https://images.unsplash.com/photo-1551183053-bf91a1d81141?auto=format&fit=crop&w=900&q=80',dinner:'https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=900&q=80'}
   };
   Object.assign(N.photos,extraPhotos);
-  // Cabillaud: retire l'ancienne photo de saumon et utilise un visuel générique de poisson blanc.
   N.photos.C.dinner='https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&w=900&q=80';
 
-  const rotations=[
-    ['C','A','B','H','D','F','G'],
-    ['I','J','A','K','L','H','G'],
-    ['B','I','D','A','K','J','G'],
-    ['H','L','C','J','A','I','G'],
-    ['K','A','I','D','H','L','G'],
-    ['J','C','H','L','I','K','G']
-  ];
-  D.weeks.forEach((week,wi)=>week.days.forEach((day,di)=>{day.menu=rotations[wi%rotations.length][di];}));
+  // 30 semaines réellement distinctes : chaque semaine utilise une permutation différente
+  // du catalogue, au lieu de répéter une boucle de 6 semaines.
+  const pool=['A','B','C','D','F','G','H','I','J','K','L'];
+  const steps=[1,2,3,4,5,6,7,8,9,10];
+  const rotations=Array.from({length:30},(_,wi)=>{
+    const step=steps[wi%steps.length];
+    const offset=(wi*3+Math.floor(wi/steps.length))%pool.length;
+    const week=Array.from({length:7},(_,di)=>pool[(offset+di*step)%pool.length]);
+    // Le dernier repas de la semaine reste plutôt glucidique, mais varie lui aussi.
+    const longFuel=['G','F','K','A','J','H'][wi%6];
+    week[6]=longFuel;
+    return week;
+  });
 
-  // meal() avait fermé sur les anciennes références : on le remplace pour inclure les nouvelles recettes/photos.
+  D.weeks.forEach((week,wi)=>week.days.forEach((day,di)=>{
+    day.menu=(rotations[wi]||rotations[wi%30])[di];
+  }));
+
   N.meal=(code,part)=>{const x=N.lib[code]||N.lib.C;return {...x[part],photo:N.photos[code]?.[part]||N.photos.C[part]};};
-  // aggregate() idem, afin que les changements soient automatiquement reflétés dans les courses.
   N.aggregate=(days,people)=>{const out={};for(const d of days){const x=N.lib[d.menu]||N.lib.C;for(const [name,qty,unit,cat] of [...x.lunch.ingredients,...x.dinner.ingredients,...x.snack]){const k=[name,unit,cat].join('|');if(!out[k])out[k]={name,qty:0,unit,cat};if(typeof qty==='number')out[k].qty+=qty*people;}}return Object.values(out).sort((a,b)=>a.cat.localeCompare(b.cat)||a.name.localeCompare(b.name));};
+
+  window.R42_MENU_ROTATIONS=rotations;
 })();
