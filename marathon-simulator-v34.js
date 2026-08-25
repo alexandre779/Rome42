@@ -1,0 +1,59 @@
+(()=>{
+'use strict';
+const STORE='r42-marathon-sim-v1';
+const KM=42.195;
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function profile(){try{return JSON.parse(localStorage.getItem('rome42-profile-v2')||'null')}catch{return null}}
+function parseTarget(v){const s=String(v||'').trim().toLowerCase().replace(/\s/g,'');let m=s.match(/^(\d{1,2})h(?:(\d{1,2}))?$/);if(m)return(+m[1])*60+(+(m[2]||0));m=s.match(/^(\d{1,2}):(\d{2})$/);if(m)return(+m[1])*60+(+m[2]);return null}
+function defaults(){const p=profile();let st=null;try{st=p&&window.R42_ENGINE?.strategy?window.R42_ENGINE.strategy(p):null}catch{}return{minutes:parseTarget(p?.targetTime)||270,strategy:st?.type==='runwalk'?'runwalk':'prudent',run:5,walk:1,walkPace:10,fuelEvery:35,open:false}}
+function load(){try{return Object.assign(defaults(),JSON.parse(localStorage.getItem(STORE)||'{}'))}catch{return defaults()}}
+function save(c){try{localStorage.setItem(STORE,JSON.stringify(c))}catch{}}
+function paceText(min){if(!Number.isFinite(min)||min<=0)return'—';let m=Math.floor(min),s=Math.round((min-m)*60);if(s===60){m++;s=0}return`${m}:${String(s).padStart(2,'0')}/km`}
+function timeText(min){if(!Number.isFinite(min))return'—';let sec=Math.max(0,Math.round(min*60)),h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;return h?`${h} h ${String(m).padStart(2,'0')}${s?`:${String(s).padStart(2,'0')}`:''}`:`${m}:${String(s).padStart(2,'0')}`}
+function factor(strategy,km){if(strategy==='negative')return km<21.0975?1.018:.982;if(strategy==='prudent')return km<5?1.035:km<30?1.002:.985;return 1}
+function runWalkPace(avg,runMin,walkMin,walkPace){const denom=(runMin+walkMin)/avg-walkMin/walkPace;return denom>0?runMin/denom:null}
+function build(c){
+ const target=Math.max(120,Math.min(450,+c.minutes||270)),avg=target/KM;
+ if(c.strategy==='runwalk'){
+   const runMin=Math.max(1,+c.run||5),walkMin=Math.max(1,+c.walk||1),walkPace=Math.max(6,+c.walkPace||10),runPace=runWalkPace(avg,runMin,walkMin,walkPace);
+   const runDistance=runPace?runMin/runPace:0,walkDistance=walkMin/walkPace,cycleDistance=runDistance+walkDistance;
+   let warning='';
+   if(!runPace)warning='Cette combinaison ne permet pas d’atteindre l’objectif saisi.';
+   else if(runPace>=walkPace)warning=`Avec une marche à ${paceText(walkPace)}, la portion course ressort à ${paceText(runPace)}. Elle serait donc aussi lente ou plus lente que la marche : augmente l’allure de marche en min/km ou ajuste le ratio.`;
+   return{avg,runPace,walkPace,cycleDistance,warning,paceAt:()=>avg};
+ }
+ let raw=0;
+ for(let x=0;x<KM;x+=.1){const step=Math.min(.1,KM-x);raw+=avg*factor(c.strategy,x+step/2)*step}
+ const scale=target/raw;
+ return{avg,runPace:null,walkPace:null,cycleDistance:null,warning:'',paceAt:km=>avg*factor(c.strategy,km)*scale};
+}
+function cumulative(model,dist){let t=0,x=0;while(x<dist-.0001){const step=Math.min(.05,dist-x);t+=model.paceAt(x+step/2)*step;x+=step}return t}
+function checkpoints(model){return[5,10,15,20,21.0975,25,30,35,40,42.195].map(km=>({km,time:cumulative(model,km),pace:model.paceAt(Math.max(0,km-.01))}))}
+function fuelMarks(c){const out=[],every=Math.max(20,+c.fuelEvery||35);for(let m=every;m<c.minutes-10;m+=every)out.push(m);return out}
+function strategyLabel(s){return s==='steady'?'Allure régulière':s==='negative'?'Negative split léger':s==='runwalk'?'Course / marche':'Départ prudent'}
+function chart(model){const W=660,H=150,P=24,pts=[];for(let km=0;km<=42;km++)pts.push({x:P+km/42*(W-P*2),p:model.paceAt(km+.05)});const vals=pts.map(x=>x.p),lo=Math.min(...vals),hi=Math.max(...vals),spread=Math.max(.12,hi-lo),y=p=>P+(p-lo)/spread*(H-P*2),d=pts.map((p,i)=>`${i?'L':'M'}${p.x.toFixed(1)},${y(p.p).toFixed(1)}`).join(' ');return`<svg class="sim-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution de l’allure prévue"><path d="${d}" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><line x1="${P}" y1="${H-P}" x2="${W-P}" y2="${H-P}" stroke="currentColor" opacity=".15"/><text x="${P}" y="${H-5}">0</text><text x="${W/2}" y="${H-5}" text-anchor="middle">21,1 km</text><text x="${W-P}" y="${H-5}" text-anchor="end">42,195</text></svg>`}
+function runWalkVisual(c,m){const n=5,blocks=Array.from({length:n},()=>`<span class="sim-rw-run" style="--d:${c.run}">Course ${c.run}'</span><span class="sim-rw-walk" style="--d:${c.walk}">Marche ${c.walk}'</span>`).join('');return`<div class="sim-rw-plan"><div class="sim-rw-cards"><div><small>ALLURE COURSE À VISER</small><b>${paceText(m.runPace)}</b></div><div><small>ALLURE MARCHE</small><b>${paceText(+c.walkPace)}</b></div><div><small>UN CYCLE</small><b>${(+c.run)+(+c.walk)} min · ≈ ${Number.isFinite(m.cycleDistance)?m.cycleDistance.toFixed(2):'—'} km</b></div></div>${m.warning?`<p class="sim-rw-warning">${esc(m.warning)}</p>`:''}<div class="sim-rw-strip" aria-label="Alternance course marche">${blocks}</div><p class="sim-rw-note">Chaque modification du ratio, de l’allure de marche ou de l’objectif recalcule immédiatement l’allure nécessaire pendant les portions courues.</p></div>`}
+function detail(x,c,m){return c.strategy==='runwalk'?`${c.run} min course ${paceText(m.runPace)} · ${c.walk} min marche ${paceText(+c.walkPace)}`:paceText(x.pace)}
+function results(root,c){
+ const m=build(c),cp=checkpoints(m),fuel=fuelMarks(c),semi=cp.find(x=>Math.abs(x.km-21.0975)<.01),k30=cp.find(x=>x.km===30),finish=cp[cp.length-1],visual=c.strategy==='runwalk'?runWalkVisual(c,m):chart(m);
+ const explain=c.strategy==='runwalk'?`Alternance ${c.run} min course / ${c.walk} min marche dès le départ. Le ratio et l’allure de marche déterminent l’allure nécessaire pendant les portions courues.`:c.strategy==='negative'?'Première moitié légèrement retenue puis seconde moitié légèrement plus rapide, pour le même objectif final.':c.strategy==='steady'?'Allure quasiment constante du départ à l’arrivée.':'Les 5 premiers kilomètres sont volontairement retenus avant de stabiliser le rythme.';
+ $('.sim-results',root).innerHTML=`<div class="sim-hero"><div><small>SCÉNARIO ${esc(strategyLabel(c.strategy).toUpperCase())}</small><strong>${timeText(c.minutes)}</strong><span>objectif marathon</span></div><div><small>${c.strategy==='runwalk'?'ALLURE COURSE':'ALLURE MOYENNE'}</small><strong>${c.strategy==='runwalk'?paceText(m.runPace):paceText(m.avg)}</strong><span>${c.strategy==='runwalk'?`marche ${paceText(+c.walkPace)} · moyenne ${paceText(m.avg)}`:'moyenne sur 42,195 km'}</span></div></div><p class="sim-explain">${esc(explain)}</p>${visual}<div class="sim-key"><div><small>SEMI</small><b>${timeText(semi.time)}</b></div><div><small>KM 30</small><b>${timeText(k30.time)}</b></div><div><small>ARRIVÉE</small><b>${timeText(finish.time)}</b></div></div><div class="sim-course"><h4>Feuille de route</h4>${cp.map(x=>`<div class="sim-split ${x.km===30?'decision':''}"><b>${x.km===21.0975?'Semi':x.km===42.195?'Arrivée':'Km '+x.km}</b><span>${timeText(x.time)}</span><small>${esc(detail(x,c,m))}${x.km===30?' · point de décision':''}</small></div>`).join('')}</div><div class="sim-fuel"><h4>Repères ravitaillement</h4><p>À tester à l’entraînement, jamais pour la première fois le jour J.</p><div>${fuel.map((v,i)=>`<span>${timeText(v)}<small>repère ${i+1}</small></span>`).join('')||'<span>Aucun repère</span>'}</div></div>`;
+}
+function bind(root,c){
+ const hours=$('#simHours',root),mins=$('#simMinutes',root),strategy=$('#simStrategy',root),fuel=$('#simFuel',root),run=$('#simRun',root),walk=$('#simWalk',root),walkPace=$('#simWalkPace',root),rw=$('.sim-runwalk',root);
+ const sync=()=>{const h=Math.max(2,Math.min(7,+hours.value||4)),mi=Math.max(0,Math.min(59,+mins.value||0));c.minutes=h*60+mi;c.strategy=strategy.value;c.run=Math.max(1,Math.min(20,+run.value||5));c.walk=Math.max(1,Math.min(10,+walk.value||1));c.walkPace=Math.max(6,Math.min(20,+walkPace.value||10));c.fuelEvery=Math.max(20,Math.min(60,+fuel.value||35));rw.hidden=c.strategy!=='runwalk';save(c);results(root,c)};
+ [hours,mins,run,walk,walkPace].forEach(el=>{el.addEventListener('input',sync);el.addEventListener('change',sync)});strategy.addEventListener('change',sync);fuel.addEventListener('change',sync);
+ $('#simToggle',root).addEventListener('click',()=>{c.open=!c.open;save(c);root.classList.toggle('is-open',c.open);$('.sim-body',root).hidden=!c.open;$('#simToggle',root).setAttribute('aria-expanded',String(c.open))});
+ sync();
+}
+function makeCard(){const c=load(),h=Math.floor(c.minutes/60),mi=c.minutes%60,el=document.createElement('section');el.id='r42MarathonSimulator';el.className='card sim-card'+(c.open?' is-open':'');el.innerHTML=`<button type="button" class="sim-toggle" id="simToggle" aria-expanded="${c.open?'true':'false'}"><span><small>STRATÉGIE JOUR J</small><b>Simulateur marathon</b><em>Construis tes passages, ton allure et tes repères jusqu’à Rome.</em></span><span class="sim-open-mark">→</span></button><div class="sim-body" ${c.open?'':'hidden'}><div class="sim-form"><div><label>Objectif</label><div class="sim-time-input"><input id="simHours" type="number" min="2" max="7" value="${h}" inputmode="numeric" aria-label="Heures"><span>h</span><input id="simMinutes" type="number" min="0" max="59" value="${mi}" inputmode="numeric" aria-label="Minutes"></div></div><div><label>Stratégie</label><select id="simStrategy"><option value="prudent" ${c.strategy==='prudent'?'selected':''}>Départ prudent</option><option value="steady" ${c.strategy==='steady'?'selected':''}>Allure régulière</option><option value="negative" ${c.strategy==='negative'?'selected':''}>Negative split léger</option><option value="runwalk" ${c.strategy==='runwalk'?'selected':''}>Course / marche</option></select></div><div><label>Ravitaillement</label><select id="simFuel"><option value="30" ${c.fuelEvery==30?'selected':''}>Toutes les 30 min</option><option value="35" ${c.fuelEvery==35?'selected':''}>Toutes les 35 min</option><option value="40" ${c.fuelEvery==40?'selected':''}>Toutes les 40 min</option><option value="45" ${c.fuelEvery==45?'selected':''}>Toutes les 45 min</option></select></div></div><div class="sim-runwalk" ${c.strategy==='runwalk'?'':'hidden'}><div><label>Course</label><input id="simRun" type="number" min="1" max="20" value="${c.run}" inputmode="numeric"><span>min</span></div><div><label>Marche</label><input id="simWalk" type="number" min="1" max="10" value="${c.walk}" inputmode="numeric"><span>min</span></div><div><label>Allure de marche</label><input id="simWalkPace" type="number" min="6" max="20" step="0.25" value="${c.walkPace}" inputmode="decimal"><span>min/km</span><small class="sim-field-help">Ex. 10 = 10:00/km</small></div></div><div class="sim-results"></div><p class="sim-note">Simulation de stratégie, pas prédiction de performance : l’objectif doit rester cohérent avec les séances réalisées.</p></div>`;bind(el,c);return el}
+function mount(){const p=$('#progress');if(!p||!p.classList.contains('active'))return false;let el=$('#r42MarathonSimulator');if(el&&p.contains(el))return true;if(el)el.remove();el=makeCard();const anchor=$('.journey-card',p);if(anchor)anchor.insertAdjacentElement('afterend',el);else p.prepend(el);return true}
+let raf=false;function schedule(){if(raf)return;raf=true;requestAnimationFrame(()=>{raf=false;mount()})}
+new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});
+document.addEventListener('click',e=>{if(e.target.closest?.('nav button[data-v="progress"]'))[40,140,350,800].forEach(ms=>setTimeout(mount,ms))},true);
+window.addEventListener('pageshow',()=>setTimeout(mount,150));
+setInterval(()=>{if($('#progress')?.classList.contains('active'))mount()},1500);
+setTimeout(mount,900);
+window.R42_MARATHON_SIM={mount,build,checkpoints};
+})();
