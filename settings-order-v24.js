@@ -10,11 +10,16 @@ function meta(el){
   if(el.id==='r42-kitchen-settings')return{rank:40,group:'nutrition'};
   if(el.id==='r42-household-cloud')return{rank:50,group:'foyer'};
   if(el.id==='r42-account')return{rank:60,group:'foyer'};
-  if(el.id==='r42-strava')return{rank:90,group:'integrations'};
-  const text=(el.textContent||'').toLowerCase();
-  if(text.includes('strava'))return{rank:90,group:'integrations'};
-  if(text.includes('garmin connect'))return{rank:95,group:'integrations'};
   return{rank:70,group:'other'};
+}
+
+function removeUnavailableIntegrations(){
+  const root=document.querySelector(ROOT);
+  if(!root)return;
+  [...root.children].forEach(el=>{
+    const text=(el.textContent||'').toLowerCase();
+    if(text.includes('garmin connect')||text.includes('strava'))el.remove();
+  });
 }
 
 function decorate(items){
@@ -42,6 +47,8 @@ function ensureStyle(){
 function reorder(){
   const root=document.querySelector(ROOT);
   if(!root||!root.children.length)return;
+  removeUnavailableIntegrations();
+  if(!root.children.length)return;
   ensureStyle();
   const items=[...root.children];
   const ordered=items.map((el,i)=>({el,i,...meta(el)})).sort((a,b)=>a.rank-b.rank||a.i-b.i).map(x=>x.el);
@@ -51,7 +58,7 @@ function reorder(){
     root.appendChild(frag);
   }
   decorate(ordered);
-  root.dataset.settingsOrder='v48';
+  root.dataset.settingsOrder='v49';
 }
 
 let pending=false;
