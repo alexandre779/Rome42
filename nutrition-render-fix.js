@@ -6,31 +6,34 @@ function scale(code){try{const p=NP()?.read?.(),e=NP()?.estimate?.(p);return e?.
 function fmt(q,u){if(u==='g'&&q>=1000)return(q/1000).toFixed(1).replace('.0','').replace('.',',')+' kg';if(u==='ml'&&q>=1000)return(q/1000).toFixed(1).replace('.0','').replace('.',',')+' L';return`${Math.max(1,Math.round(q/10)*10)} ${u}`}
 function summary(code,part){const rows=N()?.lib?.[code]?.[part]?.ingredients||[],f=scale(code);return rows.slice(0,4).map(([name,q,u])=>`${name}${typeof q==='number'?' '+fmt(q*f,u):''}`).join(' · ')}
 function weekNumber(block){const t=block.querySelector('.nutrition-week-head b')?.textContent||'';const m=t.match(/Semaine\s+(\d+)/i);return m?+m[1]:null}
+function setText(el,text){if(el&&el.textContent!==text)el.textContent=text}
 function apply(){
   const box=document.querySelector('#nutrition'); if(!box)return;
-  const weeks=window.APP_DATA?.weeks||[];
+  const weeks=window.APP_DATA?.weeks||[],used=[];
   box.querySelectorAll('.nutrition-week').forEach(block=>{
     const wn=weekNumber(block),w=weeks.find(x=>x.week===wn); if(!w)return;
     block.querySelectorAll('.menu-day').forEach((dayEl,di)=>{
-      const code=w.days?.[di]?.menu; if(!code||!N()?.lib?.[code])return;
-      const tag=dayEl.querySelector('.menu-day-head .tag'); if(tag){tag.textContent='Repas du jour';tag.classList.add('menu-friendly-tag')}
+      const base=w.days?.[di]?.menu; if(!base||!N()?.lib?.[base])return;
+      const tag=dayEl.querySelector('.menu-day-head .tag'); if(tag&&!window.R42_NUTRITION_PERSONAL){setText(tag,'Repas du jour');tag.classList.add('menu-friendly-tag')}
       dayEl.querySelectorAll('.recipe-open[data-part]').forEach(card=>{
-        const part=card.dataset.part,m=N().meal(code,part); if(!m)return;
-        card.dataset.code=code;
-        const img=card.querySelector('img'); if(img){img.src=m.photo;img.alt=m.name}
-        const body=card.querySelector('.meal-body'); if(body){
-          const b=body.querySelector('b'); if(b)b.textContent=m.name;
-          const smalls=body.querySelectorAll('small'); if(smalls[1])smalls[1].textContent=summary(code,part);
-        }
+        const part=card.dataset.part;card.dataset.r42BaseCode=base;
+        let code=base;
+        if(card.dataset.r42Personalized==='manual'&&N()?.lib?.[card.dataset.code]?.[part])code=card.dataset.code;
+        else if(window.R42_NUTRITION_PERSONAL?.choose)code=window.R42_NUTRITION_PERSONAL.choose(base,part,used)||base;
+        const m=N().meal(code,part); if(!m)return;used.push(code);card.dataset.code=code;
+        const img=card.querySelector('img'); if(img){if(img.src!==m.photo)img.src=m.photo;if(img.alt!==m.name)img.alt=m.name}
+        const body=card.querySelector('.meal-body'); if(body){const b=body.querySelector('b');setText(b,m.name);const smalls=body.querySelectorAll('small');if(smalls[1]&&!window.R42_NUTRITION_PERSONAL)setText(smalls[1],summary(code,part))}
       });
     });
   });
-  setTimeout(()=>window.R42_SHOPPING_V2?.render?.(),30);
+  if(window.R42_NUTRITION_PERSONAL?.applyMenus)setTimeout(()=>window.R42_NUTRITION_PERSONAL.applyMenus(),0);
+  else setTimeout(()=>window.R42_SHOPPING_V2?.render?.(),30);
 }
-let timer;const schedule=()=>{clearTimeout(timer);timer=setTimeout(apply,40)};
+let timer;const schedule=()=>{clearTimeout(timer);timer=setTimeout(apply,70)};
 new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});
 document.addEventListener('change',e=>{if(e.target?.closest?.('#nutrition'))setTimeout(apply,0)});
-document.addEventListener('click',e=>{if(e.target?.closest?.('nav button[data-v="nutrition"]'))setTimeout(apply,80)},true);
-setTimeout(apply,500);
+document.addEventListener('click',e=>{if(e.target?.closest?.('nav button[data-v="nutrition"]'))setTimeout(apply,100)},true);
+document.addEventListener('r42:nutrition-preferences',()=>setTimeout(apply,0));
+setTimeout(apply,550);
 window.R42_NUTRITION_RENDER_FIX={apply};
 })();
