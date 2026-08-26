@@ -1,0 +1,20 @@
+name = "rome42-strava"
+main = "index.js"
+compatibility_date = "2026-08-26"
+
+[vars]
+APP_URL = "https://alexandre779.github.io/Rome42/"
+ALLOWED_ORIGIN = "https://alexandre779.github.io"
+PUBLIC_BASE_URL = "https://rome42-strava.YOUR-SUBDOMAIN.workers.dev"
+FIREBASE_PROJECT_ID = "rome42-7d839"
+STRAVA_CLIENT_ID = "YOUR_STRAVA_CLIENT_ID"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rome42-strava"
+database_id = "YOUR_D1_DATABASE_ID"
+
+# Ajouter comme secrets avec `wrangler secret put` :
+# STRAVA_CLIENT_SECRET
+# TOKEN_ENCRYPTION_KEY   (32 octets aléatoires encodés en base64)
+# STRAVA_WEBHOOK_VERIFY_TOKEN
