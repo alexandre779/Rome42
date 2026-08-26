@@ -1,0 +1,160 @@
+name: Deploy Strava Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      strava_client_id:
+        description: "Strava Client ID (non secret)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+      STRAVA_CLIENT_ID: ${{ inputs.strava_client_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required values
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID STRAVA_CLIENT_SECRET STRAVA_CLIENT_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required value: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install Wrangler
+        shell: bash
+        run: npm install --no-save wrangler@4
+
+      - name: Resolve Workers.dev subdomain
+        id: subdomain
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+          AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
+
+          RESPONSE="$(curl -fsS "${AUTH[@]}" "${API}/workers/subdomain")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | jq -r '.result.subdomain // empty')"
+
+          if [ -z "$SUBDOMAIN" ]; then
+            CANDIDATE="$(printf '%s-rome42' '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
+            echo "No Workers.dev subdomain found. Trying: $CANDIDATE"
+            RESPONSE="$(curl -fsS -X PUT "${AUTH[@]}" "${API}/workers/subdomain" --data "{\"subdomain\":\"${CANDIDATE}\"}")"
+            SUBDOMAIN="$(printf '%s' "$RESPONSE" | jq -r '.result.subdomain // empty')"
+          fi
+
+          if [ -z "$SUBDOMAIN" ]; then
+            echo "Unable to resolve or create the Workers.dev subdomain." >&2
+            exit 1
+          fi
+
+          echo "subdomain=$SUBDOMAIN" >> "$GITHUB_OUTPUT"
+          echo "PUBLIC_BASE_URL=https://rome42-strava.${SUBDOMAIN}.workers.dev" >> "$GITHUB_ENV"
+
+      - name: Resolve or create D1 database
+        id: d1
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+          AUTH=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json")
+
+          RESPONSE="$(curl -fsS "${AUTH[@]}" "${API}/d1/database?name=rome42-strava&per_page=100")"
+          DB_ID="$(printf '%s' "$RESPONSE" | jq -r '.result[]? | select(.name == "rome42-strava") | (.uuid // .id)' | head -n1)"
+
+          if [ -z "$DB_ID" ]; then
+            echo "Creating D1 database rome42-strava in EU jurisdiction…"
+            RESPONSE="$(curl -fsS -X POST "${AUTH[@]}" "${API}/d1/database" --data '{"name":"rome42-strava","jurisdiction":"eu"}')"
+            DB_ID="$(printf '%s' "$RESPONSE" | jq -r '.result.uuid // .result.id // empty')"
+          fi
+
+          if [ -z "$DB_ID" ]; then
+            echo "Unable to resolve or create D1 database rome42-strava." >&2
+            exit 1
+          fi
+
+          echo "database_id=$DB_ID" >> "$GITHUB_OUTPUT"
+          echo "D1_DATABASE_ID=$DB_ID" >> "$GITHUB_ENV"
+
+      - name: Build production Wrangler config
+        shell: bash
+        working-directory: strava-worker
+        run: |
+          set -euo pipefail
+          cat > wrangler.toml <<EOF
+          name = "rome42-strava"
+          main = "index.js"
+          compatibility_date = "2026-08-26"
+          workers_dev = true
+
+          [vars]
+          APP_URL = "https://alexandre779.github.io/Rome42/"
+          ALLOWED_ORIGIN = "https://alexandre779.github.io"
+          PUBLIC_BASE_URL = "${PUBLIC_BASE_URL}"
+          FIREBASE_PROJECT_ID = "rome42"
+          STRAVA_CLIENT_ID = "${STRAVA_CLIENT_ID}"
+
+          [[d1_databases]]
+          binding = "DB"
+          database_name = "rome42-strava"
+          database_id = "${D1_DATABASE_ID}"
+          EOF
+
+      - name: Deploy Worker
+        shell: bash
+        working-directory: strava-worker
+        run: npx wrangler deploy --config wrangler.toml
+
+      - name: Configure Strava client secret
+        shell: bash
+        working-directory: strava-worker
+        run: printf '%s' "$STRAVA_CLIENT_SECRET" | npx wrangler secret put STRAVA_CLIENT_SECRET --config wrangler.toml
+
+      - name: Ensure token encryption secret exists
+        shell: bash
+        working-directory: strava-worker
+        run: |
+          set -euo pipefail
+          SECRET_LIST="$(npx wrangler secret list --config wrangler.toml 2>/dev/null || true)"
+          if printf '%s' "$SECRET_LIST" | grep -q 'TOKEN_ENCRYPTION_KEY'; then
+            echo "TOKEN_ENCRYPTION_KEY already exists; keeping it unchanged."
+          else
+            KEY="$(openssl rand -base64 32 | tr -d '\n')"
+            printf '%s' "$KEY" | npx wrangler secret put TOKEN_ENCRYPTION_KEY --config wrangler.toml
+            echo "TOKEN_ENCRYPTION_KEY created."
+          fi
+
+      - name: Deployment summary
+        shell: bash
+        run: |
+          HOST="rome42-strava.${{ steps.subdomain.outputs.subdomain }}.workers.dev"
+          {
+            echo "## Rome42 · Strava Worker"
+            echo ""
+            echo "✅ Worker deployed: **${PUBLIC_BASE_URL}**"
+            echo ""
+            echo "### Strava application settings"
+            echo "Authorization Callback Domain: \`${HOST}\`"
+            echo ""
+            echo "OAuth callback: \`${PUBLIC_BASE_URL}/api/strava/callback\`"
+            echo ""
+            echo "Optional webhook endpoint: \`${PUBLIC_BASE_URL}/api/strava/webhook\`"
+            echo ""
+            echo "### Rome42"
+            echo "Paste \`${PUBLIC_BASE_URL}\` into Réglages → Strava → Configuration développeur."
+          } >> "$GITHUB_STEP_SUMMARY"
