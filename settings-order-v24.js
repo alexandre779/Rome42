@@ -10,8 +10,10 @@ function meta(el){
   if(el.id==='r42-kitchen-settings')return{rank:40,group:'nutrition'};
   if(el.id==='r42-household-cloud')return{rank:50,group:'foyer'};
   if(el.id==='r42-account')return{rank:60,group:'foyer'};
+  if(el.id==='r42-strava')return{rank:90,group:'integrations'};
   const text=(el.textContent||'').toLowerCase();
-  if(text.includes('garmin connect'))return{rank:90,group:'integrations'};
+  if(text.includes('strava'))return{rank:90,group:'integrations'};
+  if(text.includes('garmin connect'))return{rank:95,group:'integrations'};
   return{rank:70,group:'other'};
 }
 
@@ -49,7 +51,7 @@ function reorder(){
     root.appendChild(frag);
   }
   decorate(ordered);
-  root.dataset.settingsOrder='v47';
+  root.dataset.settingsOrder='v48';
 }
 
 let pending=false;
